@@ -30,7 +30,7 @@ chatRouter.get("/", async (req, res) => {
 
   const embedding = embeddingResponse.data[0].embedding;
 
-  const { data } = await supabase.rpc("match_documents", {
+  const { data } = await supabase.rpc("match_embeddings", {
     query_embedding: embedding,
     match_threshold: 0.5,
     match_count: 15,
@@ -41,8 +41,8 @@ chatRouter.get("/", async (req, res) => {
   messages.push({
     role: "user",
     content: `
-      Kontext: ${context} 
-      
+      Kontext: ${context}
+
       Fråga: """
       ${input}
       """
@@ -54,6 +54,9 @@ chatRouter.get("/", async (req, res) => {
     input: messages,
   });
 
+  console.log(messages);
+
+  console.log(chatResponse.output_text);
   return res.status(200).json({ message: chatResponse.output_text });
 });
 
