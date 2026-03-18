@@ -53,10 +53,10 @@ export async function extractTextFromPdfs(urls = []) {
 function parsePdfsToSections(pdfs = []) {
   const temp = [];
   for (const pdf of pdfs) {
-    const name = pdf.name;
+    const moduleName = pdf.name;
     const text = pdf.text;
-    const [module, systems] = name?.split("-");
-    const [moduleNumber, moduleName] = module?.split(" ");
+    const [module, systems] = moduleName?.split("-");
+    const [moduleNumber, verksamhet] = module?.split(" ");
     const regex = /^(\d(?:\.\d\d?)?)\s{1,}([A-ZÅÄÖa-zåäö”"].*)\n/gm;
 
     const inledning = [...text.matchAll(/^[Ii]nledning\n/gm)];
@@ -70,14 +70,12 @@ function parsePdfsToSections(pdfs = []) {
       if (!match) return null;
 
       const fullMatch = match[0];
-      let sectionName = match?.[2] ? match?.[2] : match[0] ? match[0] : "";
+      let section = match?.[2] ? match[2] : match[0] ? match[0] : "";
       let sectionNumber = match?.[1] ? parseFloat(match[1]) : null;
 
       if (Number.isInteger(sectionNumber) || sectionNumber === null) {
-        chapter = sectionName;
+        chapter = section;
         chapterNumber = sectionNumber;
-        sectionName = null;
-        sectionNumber = null;
       }
 
       let content;
@@ -93,14 +91,15 @@ function parsePdfsToSections(pdfs = []) {
         );
       }
 
+      //  section_name text,
+      //  chapter_name text,
       return {
-        name,
         moduleName,
         moduleNumber,
-        systems: systems?.trim(),
+        verksamhet,
         chapter,
         chapterNumber,
-        sectionName,
+        section,
         sectionNumber,
         content,
       };
@@ -112,29 +111,81 @@ function parsePdfsToSections(pdfs = []) {
   return temp;
 }
 
-export async function chunkSections(sections) {
-  try {
-    const splitter = new RecursiveCharacterTextSplitter({
-      chunkSize: 400,
-      chunkOverlap: 100,
-    });
+async function chunkSectionsWithAi(sections) {
+  const result = await Promise.all(
+    sections.map(async section => {
+      const result = await openai.responses.parse({
+        input: `
+        Du behöver dela upp den givna texten i segment (chunks) med en storlek på 300–500.
+        Det är viktigt att segmenten inte förlorar mening eller semantisk struktur.
 
-    const chunks = await Promise.all(
-      sections.map(async section => {
-        const texts = await splitter.splitText(section.content);
+        Varje segment ska bestå av:
+          - Segmentet
+          - En kort sammanfattning av segmentet
+          - En lista med exempel på frågor som textsegmentet kan besvara. Frågorna måste vara relevanta för segmentet och dess innehåll.
+          - En lista med nyckelord som matchar det aktuella segmentet.
 
-        return texts.map(chunk => ({
-          name: section.name,
-          heading: section.heading,
-          content: section.name + " " + section.heading + "\n" + chunk,
-        }));
-      }),
-    );
-    return chunks.flat();
-  } catch (err) {
-    console.error(err);
-    throw new Error("Failed to chunk text: " + err.message, { cause: err });
-  }
+
+        Texten du ska dela upp hör till modul ${section.moduleNumber} ${section.moduleName}.
+        Kapitel ${section.chapterNumber}, ${section.chapter}.
+        Sektion ${section.sectionNumber}, ${section.section}.
+
+
+        VIKTIGT!!! Texten du ska dela upp hör till verksamheten ${section.verksamhet}.
+        TEXTEN DU SKA UTFÖRA UPPGIFT PÅ:------
+
+        ${section.content}.
+
+        ------------
+        `,
+        text: {
+          format: {
+            type: "json_schema",
+            json_schema: {
+              name: "chunk_schema",
+              schema: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    chunk: {
+                      type: "string",
+                      description: "Det orginala Segmentet.",
+                    },
+                    summary: {
+                      type: "string",
+                      description: "En kort sammanfattning av segmentet",
+                    },
+                    questions: {
+                      type: "array",
+                      description:
+                        "En lista med exempel på frågor som textsegmentet kan besvara.",
+                      items: {
+                        type: "string",
+                      },
+                    },
+                    keywords: {
+                      type: "array",
+                      description:
+                        "En lista med nyckelord som matchar det aktuella segmentet",
+                      items: {
+                        type: "string",
+                        description: "Ett nyckelord relaterat till segmentet ",
+                      },
+                    },
+                  },
+                  required: ["chunk", "summary", "questions", "keywords"],
+                  additionalProperties: false,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      console.log(result);
+    }),
+  );
 }
 
 export function prettifyTermsModule(sections) {
@@ -315,6 +366,8 @@ async function insertModules() {
   const pdfs = await extractTextFromPdfs(urls);
 
   const sections = parsePdfsToSections(pdfs);
+
+  //console.log(sections);
 }
 
 //insertModules();
@@ -331,6 +384,6 @@ const pdfs = await extractTextFromPdfs([
 
 const sections = parsePdfsToSections(pdfs);
 
-const testSections = sections.slice(0, 20);
+const testSections = sections.slice(0, 5);
 
-console.log(testSections);
+const chunks = await chunkSectionsWithAi(testSections);
