@@ -95,9 +95,11 @@ function parsePdfsToSections(pdfs = []) {
     const matches = [inledning[0], ...text.matchAll(regex)];
 
     const sections = matches.map((match, i) => {
+      if (!match) return null;
+
       const heading = match[0];
 
-      let content = "";
+      let content;
       if (i + 1 === matches.length) {
         content = match.input.slice(
           match.index + heading.length,
@@ -113,7 +115,7 @@ function parsePdfsToSections(pdfs = []) {
       return { name, heading, content };
     });
 
-    temp.push(...sections);
+    temp.push(...sections.filter(item => item));
   }
 
   return temp;
@@ -226,4 +228,18 @@ async function seedVectorDb() {
   }
 }
 
-seedVectorDb();
+//seedVectorDb();
+
+const pdfs = await extractTextFromPdfs([
+  {
+    url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/03hms-signaler---system-h-m-och-s.pdf",
+    startPage: 11,
+    name: "3HMS Signaler - System H, M och S",
+  },
+]);
+console.log("Text extracted from pdfs successfully! ✅");
+
+const sections = parsePdfsToSections(pdfs);
+console.log("Prased and generated pdf sections successfully! ✅");
+
+console.log(sections);
