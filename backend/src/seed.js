@@ -88,31 +88,51 @@ function parsePdfsToSections(pdfs = []) {
   for (const pdf of pdfs) {
     const name = pdf.name;
     const text = pdf.text;
+    // /^(\d(?:\.\d\d?)?)\s{1,}([A-ZÅÄÖa-zåäö”"].*)\n/gm;
     const regex = /^(\d(?:\.\d\d?)?)\s{1,}([A-ZÅÄÖa-zåäö”"].*)\n/gm;
 
     const inledning = [...text.matchAll(/^[Ii]nledning\n/gm)];
 
     const matches = [inledning[0], ...text.matchAll(regex)];
 
+    let chapter = null;
+    let chapterNumber = null;
+
     const sections = matches.map((match, i) => {
       if (!match) return null;
 
-      const heading = match[0];
+      const fullMatch = match[0];
+      let sectionName = match?.[2] ? match?.[2] : match[0] ? match[0] : "";
+      let sectionNumber = match?.[1] ? parseFloat(match[1]) : null;
+
+      if (Number.isInteger(sectionNumber) || sectionNumber === null) {
+        chapter = sectionName;
+        chapterNumber = sectionNumber;
+        sectionName = null;
+        sectionNumber = null;
+      }
 
       let content;
       if (i + 1 === matches.length) {
         content = match.input.slice(
-          match.index + heading.length,
+          match.index + fullMatch.length,
           match.input.length,
         );
       } else {
         content = match.input.slice(
-          match.index + heading.length,
+          match.index + fullMatch.length,
           matches[i + 1].index,
         );
       }
 
-      return { name, heading, content };
+      return {
+        name,
+        chapter,
+        chapterNumber,
+        sectionName,
+        sectionNumber,
+        content,
+      };
     });
 
     temp.push(...sections.filter(item => item));
@@ -229,3 +249,17 @@ async function seedVectorDb() {
 }
 
 //seedVectorDb();
+
+const pdfs = await extractTextFromPdfs([
+  {
+    url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/08hm-tagfard---system-h-och-m.pdf",
+    startPage: 5,
+    name: "8HM Tågfärd - System H och M",
+  },
+]);
+
+const sections = parsePdfsToSections(pdfs);
+
+const testSections = sections.slice(0, 20);
+
+console.log(testSections);
