@@ -21,7 +21,7 @@ export async function extractTextFromPdfs(urls = []) {
 
         const startPage = pdf.startPage;
         const name = pdf.name;
-        const regex = new RegExp("\\d+\\s+" + name, "g");
+        const regex = new RegExp("\\d+\\s+" + name + ".+\\n", "g"); //matches module name
         const skipPages = pdf.skipPages;
 
         if (!pdf.partial) pages.pop(); //remove last page if you dont specificly select pages to parse
@@ -57,17 +57,19 @@ function parsePdfsToSections(pdfs = []) {
     const text = pdf.text;
     const module = name?.split("-")?.[0]?.trim() ?? "";
     const [moduleNumber, moduleName] = module.split(" ");
-    const regex = /^(\d(?:\.\d\d?)?)\s{1,}([A-ZÅÄÖa-zåäö”"].*)\n/gm;
+    const sectionNameRegex = /^(\d(?:\.\d\d?)?)\s{2,}([A-ZÅÄÖa-zåäö”"].*)\n/gm;
 
     const inledning = [...text.matchAll(/^[Ii]nledning\n/gm)];
 
-    const matches = [inledning[0], ...text.matchAll(regex)];
+    const matches = [inledning[0], ...text.matchAll(sectionNameRegex)];
 
     let chapter = null;
     let chapterNumber = null;
 
     const sections = matches.map((match, i) => {
       if (!match) return null;
+
+      if (i < 10) console.log(match);
 
       const fullMatch = match[0];
       let section = match?.[2] ? match[2] : match[0] ? match[0] : "";
@@ -115,7 +117,6 @@ async function chunkSections(sections) {
   const splitter = new RecursiveCharacterTextSplitter({
     chunkSize: 1000,
     chunkOverlap: 200,
-    separators: [".\n", "\n\n"],
   });
 
   const chunks = await Promise.all(
@@ -132,19 +133,6 @@ async function chunkSections(sections) {
       }) => {
         let string = content.replace(/\n/gm, " ");
 
-        if (string.length < 1000)
-          return {
-            module,
-            moduleName,
-            moduleNumber,
-            chapter,
-            chapterNumber,
-            section,
-            sectionNumber,
-            content: string,
-            text: `Modul: ${module}\n${moduleName}, Kapitel ${chapterNumber}, ${chapter}\nAvsnitt ${sectionNumber}, ${section}\n${string}`,
-          };
-
         const texts = await splitter.splitText(string);
 
         const chunks = texts.map(chunk => ({
@@ -155,8 +143,10 @@ async function chunkSections(sections) {
           chapterNumber,
           section,
           sectionNumber,
-          content: chunk,
-          text: `Modul: ${module}\n${moduleName}, Kapitel ${chapterNumber}, ${chapter}\nAvsnitt ${sectionNumber}, ${section}\n${chunk}`,
+          chunk,
+          text:
+            `Modul: ${module}\n${moduleName}, ${chapterNumber ? `Kapitel ${chapterNumber}, ${chapter}\n` : ""}${sectionNumber ? `Avsnitt ${sectionNumber}, ${section}\n` : ""}` +
+            chunk,
         }));
 
         return chunks;
@@ -288,72 +278,15 @@ async function seedVectorDb() {
   }
 }
 
-async function insertModules() {
-  const urls = [
-    {
-      url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/01-termer.pdf",
-      name: "1 Termer",
-      partial: [5],
-    },
-    {
-      url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/03-signaler---gemensamma-regler_.pdf",
-      name: "3 Signaler – Gemensamma regler",
-      partial: [7],
-    },
-    {
-      url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/03hms-signaler---system-h-m-och-s.pdf",
-      name: "3HMS Signaler - System H, M och S",
-      partial: [7],
-    },
-    {
-      url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/04-dialog-och-ordergivning_.pdf",
-      name: "4 Dialog och ordergivning",
-      partial: [5],
-    },
-    {
-      url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/06-fara-och-olycka.pdf",
-      name: "6 Fara och olycka",
-      partial: [5],
-    },
-    {
-      url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/07-vagvakt.pdf",
-      name: "7 Vägvakt",
-      partial: [5],
-    },
-    {
-      url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/08hm-tagfard---system-h-och-m.pdf",
-      name: "8HM Tågfärd - System H och M",
-      partial: [5],
-    },
-    {
-      url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/09hms-sparrfard---system-h-m-och-s.pdf",
-      name: "9HMS Spärrfärd - System H, M och S",
-      partial: [5],
-    },
-    {
-      url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/10hms-vaxling--system-h-m-och-s.pdf",
-      name: "10HMS Växling – System H, M och S",
-      partial: [5],
-    },
-    {
-      url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/11-broms.pdf",
-      name: "11 Broms",
-      partial: [5],
-    },
-  ];
-
-  const pdfs = await extractTextFromPdfs(urls);
-
-  const sections = parsePdfsToSections(pdfs);
-
-  //console.log(sections);
-}
-
-//insertModules();
-
 //seedVectorDb();
 
 const pdfs = await extractTextFromPdfs([
+  {
+    url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/10hms-vaxling--system-h-m-och-s.pdf",
+    startPage: 5,
+    name: "10HMS Växling – System H, M och S",
+    skipPage: [7, 37, 38, 39, 40],
+  },
   {
     url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/08hm-tagfard---system-h-och-m.pdf",
     startPage: 5,
@@ -361,9 +294,11 @@ const pdfs = await extractTextFromPdfs([
   },
 ]);
 
+//console.log(pdfs);
+
 const sections = parsePdfsToSections(pdfs);
 
-const testSections = sections.slice(0, 5);
-
-const chunks = await chunkSections(testSections);
-console.log(chunks);
+const testSections = sections.slice(0, 10);
+//console.log(testSections);
+//const chunks = await chunkSections(testSections);
+//console.log(chunks);
