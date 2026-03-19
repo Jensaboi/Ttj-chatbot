@@ -2,55 +2,37 @@ import { PDFParse } from "pdf-parse";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { openai, supabase } from "./config.js";
 
-export async function extractTextFromPdfs(urls = []) {
+export async function getTextFromPdf({
+  url,
+  partial,
+  startPage = 0,
+  skipPage = [],
+}) {
   try {
-    if (!Array.isArray(urls)) throw new Error("Urls must be typeof array.");
-    if (urls.length === 0) throw new Error("Urls is empty.");
+    if (!url) throw new Error("Url is required.");
 
-    const parsers = urls.map(obj => ({
-      parse: new PDFParse({ url: obj.url }),
-      startPage: obj?.startPage ?? 0,
-      name: obj?.name ?? "",
-      skipPages: obj?.skipPages ?? [],
-      partial: obj?.partial,
-    }));
+    const parser = new PDFParse({ url });
 
-    const parsedPdfs = await Promise.all(
-      parsers.map(async pdf => {
-        const { pages } = await pdf.parse.getText({ partial: pdf?.partial });
+    const { pages } = await parser.getText({ partial });
 
-        const startPage = pdf.startPage;
-        const name = pdf.name;
-        const regex = new RegExp("\\d+\\s+" + name + ".+\\n", "g"); //matches module name
-        const skipPages = pdf.skipPages;
+    if (!partial) pages.pop(); //remove last page, only if you didnt select one
 
-        if (!pdf.partial) pages.pop(); //remove last page if you dont specificly select pages to parse
+    const text = pages
+      .filter(page => page.num >= startPage)
+      .filter(page => !skipPage.includes(page.num))
+      .map(page => page.text)
+      .join("\n");
 
-        let text = pages
-          .filter(page => page.num >= startPage)
-          .filter(page => !skipPages.includes(page.num))
-          .map(page => page.text)
-          .join(" ")
-          .replace(regex, "") //Remove uneccessary module name repetition and page number.
-          .replace(/\t+/g, " ") // tabs → spaces
-          .replace(/-\n/g, "") // fix hyphenated line breaks kör - tillstånd -> körtillstånd.
-          .replace(/\n{3,}/g, "\n\n") // collapse large newline blocks.
-          .trim();
-
-        return { name, text };
-      }),
-    );
-
-    return parsedPdfs;
+    return { text };
   } catch (err) {
     console.error(err);
-    throw new Error("Failed to extract text from pdf file: " + err.message, {
+    throw new Error("Failed to get text from pdf: " + err.message, {
       cause: err,
     });
   }
 }
 
-function parsePdfsToSections(pdfs = []) {
+function parseText(text) {
   const temp = [];
   for (const pdf of pdfs) {
     const name = pdf.name;
@@ -278,27 +260,45 @@ async function seedVectorDb() {
   }
 }
 
-//seedVectorDb();
+const pdf = await getTextFromPdf({
+  url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/10hms-vaxling--system-h-m-och-s.pdf",
+  startPage: 5,
+  skipPage: [7, 6],
+});
 
-const pdfs = await extractTextFromPdfs([
-  {
-    url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/10hms-vaxling--system-h-m-och-s.pdf",
-    startPage: 5,
-    name: "10HMS Växling – System H, M och S",
-    skipPage: [7, 37, 38, 39, 40],
-  },
-  {
-    url: "https://bransch.trafikverket.se/contentassets/18aa4c18f60e48c398afa22e65079111/08hm-tagfard---system-h-och-m.pdf",
-    startPage: 5,
-    name: "8HM Tågfärd - System H och M",
-  },
-]);
+const pageAndModulRegex = /^\d+\t\d{1,2}.+\n/gm;
+const headingRegex = /(\d(?:\.\d\d?)?)\s{1,}\t([A-ZÅÄÖa-zåäö”" ,]+\n)/gm;
 
-//console.log(pdfs);
+const pages = [...pdf.text.matchAll(pageAndModulRegex)];
 
-const sections = parsePdfsToSections(pdfs);
+const headings = [...pdf.text.matchAll(headingRegex)];
 
-const testSections = sections.slice(0, 10);
-//console.log(testSections);
-//const chunks = await chunkSections(testSections);
-//console.log(chunks);
+const result = headings.map((item, i) => {
+  const heading = item[0];
+  const startIndex = item.index + heading.length;
+
+  let endIndex = headings[i + 1]?.index;
+  if (headings.length - 1 === i) endIndex = pdf.text.length;
+
+  let text = pdf.text.slice(startIndex, endIndex);
+
+  text = text.replace(/-\n/gm, "");
+
+  return { heading, text, startIndex, endIndex };
+});
+
+for (const page of pages) {
+  console.log({ ...page, input: 0 });
+}
+
+console.log(result);
+
+//console.log(pdf);
+
+//create chapter/section regex.
+//matchAll with regex.
+//create sections
+//remove page/module text
+//compare chapter/section index with page/module index
+//give correct modulename and system to section
+//Remove
