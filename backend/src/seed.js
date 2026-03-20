@@ -34,7 +34,7 @@ export async function getTextFromPdf({
 }
 
 function parseText(text) {
-  const pageAndModulRegex = /^\d+\t\d{1,2}.+\n/gm;
+  const pageAndModulRegex = /^\d+\s?\t.+\n/gm;
   const headingRegex = /^(\d(?:\.\d\d?)?)\s{1,}\t?([A-ZÅÄÖa-zåäö”" ,-]+\n)/gm;
 
   const pageMatches = [...text.matchAll(pageAndModulRegex)];
@@ -226,7 +226,7 @@ const sections = parseText(pdf.text);
 
 console.log({ text: pdf.text });
 
-console.log(sections.slice(0, 10));
+console.log(sections.slice(0, 5));
 
 //console.log(pdf);
 
